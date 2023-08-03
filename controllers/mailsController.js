@@ -71,6 +71,9 @@ const activate = async (req, res) => {
   if (data) {
     //use session
     req.session.context = activationLink;
+    if (!req.session.context) {
+      return res.status(404).json({ message: 'не установлена session ActivationLink' });
+    }
     return res.redirect(`${process.env.CLIENT_URL}/create`);
   }
   res.status(404).json({ message: 'Not found activation link' });
