@@ -88,7 +88,9 @@ const updateUser = async (req, res) => {
   }
   //get from session
   const activationLink = req.session.context;
-  console.log(activationLink);
+  if (!activationLink) {
+    return res.status(404).json({ message: 'не найден ActivationLink' });
+  }
   req.session.context = null; // resets session variable
 
   // console.log('first', activationLink);
