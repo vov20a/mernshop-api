@@ -77,7 +77,7 @@ const activate = async (req, res) => {
 };
 
 // @desc POST update user with new password
-// @route POST /mails/password
+// @route POST /mails/create
 // @access Public
 const updateUser = async (req, res) => {
   const { password } = req.body;
@@ -88,6 +88,7 @@ const updateUser = async (req, res) => {
   }
   //get from session
   const activationLink = req.session.context;
+  console.log(activationLink);
   req.session.context = null; // resets session variable
 
   // console.log('first', activationLink);
