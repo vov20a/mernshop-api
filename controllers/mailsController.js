@@ -69,11 +69,18 @@ const activate = async (req, res) => {
   const activationLink = req.params.link;
   const data = await Forgot.findOne({ activationLink }).lean();
   if (data) {
-    //use session
-    req.session.context = activationLink;
-    if (req.session.context !== activationLink) {
-      return res.status(404).json({ message: 'не установлена session ActivationLink' });
-    }
+    const aclToken = jwt.sign({ activationLink }, process.env.ACTIVATION_LINK_SECRET, {
+      expiresIn: '10m',
+    });
+
+    // Create secure cookie with refresh token
+    res.cookie('acl', aclToken, {
+      httpOnly: true, //accessible only by web server
+      secure: true, //https
+      sameSite: 'None', //cross-site cookie
+      maxAge: 10 * 60 * 1000, //cookie expiry: set to match rT
+    });
+
     return res.redirect(`${process.env.CLIENT_URL}/create`);
   }
   res.status(404).json({ message: 'Not found activation link' });
@@ -89,69 +96,72 @@ const updateUser = async (req, res) => {
   if (!password) {
     return res.status(400).json({ message: 'Password field are required' });
   }
-  //get from session
-  const activationLink = req.session.context;
-  if (!activationLink) {
-    return res.status(404).json({ message: 'не найден ActivationLink' });
-  }
-  req.session.context = null; // resets session variable
 
-  // console.log('first', activationLink);
-  const forgot = await Forgot.findOne({ activationLink }).lean();
-  //забрали данные и удаляем запись из DB forgots
-  await Forgot.findByIdAndDelete(forgot._id);
+  const cookies = req.cookies;
 
-  if (!forgot) {
-    return res.status(404).json({ message: 'Data of restore password not found' });
-  }
+  if (!cookies?.acl) return res.status(401).json({ message: 'Not Found ActivationLink cookie' });
 
-  const finishDate = Date.now();
-  if (finishDate - forgot.date > 600000) {
-    return res.status(408).json({
-      message: 'Истекло время действия ссылки',
-    });
-  }
-  // Hash password
-  const hashedPwd = await bcrypt.hash(password, 10); // salt rounds
+  const aclToken = cookies.acl;
 
-  const user = await User.findOneAndUpdate(
-    { email: forgot.email },
-    {
-      email: forgot.email,
-      password: hashedPwd,
-    },
-  );
-  if (!user) {
-    return res.status(404).json({ message: 'Пользователь не найден UpdateUser' });
-  }
-  const accessToken = jwt.sign(
-    {
-      UserInfo: {
-        username: user.username,
-        email: user.email,
-        roles: user.roles,
-        id: user.id,
+  jwt.verify(aclToken, process.env.ACTIVATION_LINK_SECRET, async (err, decoded) => {
+    if (err) return res.status(403).json({ message: 'Error decoded acl' });
+
+    const forgot = await Forgot.findOne({
+      activationLink: decoded.activationLink,
+    }).exec();
+
+    if (!forgot) return res.status(401).json({ message: 'Data of restore password not found' });
+    //забрали данные и удаляем запись из DB forgots
+    await Forgot.findByIdAndDelete(forgot._id);
+
+    const finishDate = Date.now();
+    if (finishDate - forgot.date.getTime() > 600000) {
+      return res.status(408).json({
+        message: 'Истекло время действия ссылки',
+      });
+    }
+    // Hash password
+    const hashedPwd = await bcrypt.hash(password, 10); // salt rounds
+
+    const user = await User.findOneAndUpdate(
+      { email: forgot.email },
+      {
+        email: forgot.email,
+        password: hashedPwd,
       },
-    },
-    process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: '15m' },
-  );
+    );
+    if (!user) {
+      return res.status(404).json({ message: 'Пользователь не найден UpdateUser' });
+    }
+    const accessToken = jwt.sign(
+      {
+        UserInfo: {
+          username: user.username,
+          email: user.email,
+          roles: user.roles,
+          id: user.id,
+        },
+      },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: '15m' },
+    );
 
-  const refreshToken = jwt.sign(
-    { username: user.username, email: user.email, id: user.id },
-    process.env.REFRESH_TOKEN_SECRET,
-    { expiresIn: '7d' },
-  );
+    const refreshToken = jwt.sign(
+      { username: user.username, email: user.email, id: user.id },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: '7d' },
+    );
 
-  // Create secure cookie with refresh token
-  res.cookie('jwt', refreshToken, {
-    httpOnly: true, //accessible only by web server
-    secure: true, //https
-    sameSite: 'None', //cross-site cookie
-    maxAge: 7 * 24 * 60 * 60 * 1000, //cookie expiry: set to match rT
+    // Create secure cookie with refresh token
+    res.cookie('jwt', refreshToken, {
+      httpOnly: true, //accessible only by web server
+      secure: true, //https
+      sameSite: 'None', //cross-site cookie
+      maxAge: 7 * 24 * 60 * 60 * 1000, //cookie expiry: set to match rT
+    });
+
+    res.json({ accessToken });
   });
-
-  res.json({ accessToken });
 };
 
 module.exports = {

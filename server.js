@@ -12,8 +12,8 @@ const connectDB = require('./config/dbConn');
 const mongoose = require('mongoose');
 const fileUpload = require('express-fileupload');
 const PORT = process.env.PORT || 3500;
-const session = require('express-session');
-app.use(session({ secret: process.env.SESSION_SECRET, resave: false, saveUninitialized: false }));
+// const session = require('express-session');
+// app.use(session({ secret: process.env.SESSION_SECRET, resave: false, saveUninitialized: false }));
 
 console.log(process.env.NODE_ENV);
 app.use(fileUpload({}));
